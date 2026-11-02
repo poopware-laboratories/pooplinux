@@ -200,7 +200,8 @@ Refs: #123
 
 ## 9. Review
 
-- Every PR needs **one approving review** from a maintainer. PRs touching a sensitive area need **two**, one of whom owns that area (`.github/CODEOWNERS`, `MAINTAINERS.md`).
+- **No approving review is required to merge.** A PR merges when every required CI check passes: `docs`, `lint`, `secrets` and `policy` (`.github/workflows/ci.yml`). CI is the gate, so it is strict: shellcheck, actionlint, SPDX headers, secret scanning, Conventional Commits titles and attribution-footer checks all run on every PR.
+- Maintainers may still review and comment. Sensitive areas (`AGENTS.md` §7) should be called out in the PR description so that a reviewer can look at them.
 - Reviewers look at correctness first, then reproducibility, then security, then style.
 - Authors respond to every comment: fix it, or explain why not, and resolve the thread only after the reviewer agrees.
 - If a review takes more than 7 days with no reply, ping the maintainers' channel.

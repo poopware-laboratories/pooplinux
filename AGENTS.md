@@ -166,7 +166,7 @@ Build outputs go in `out/` and `work/`. Never commit them.
 
 ## 7. Sensitive areas (extra caution)
 
-Changes in these areas need a maintainer review, even if CI is green:
+Changes in these areas must be called out in the PR description, with the risk stated. CI is strict on every PR, and reviews are optional:
 
 - `.github/workflows/` (CI runs with access to signing secrets)
 - `keyring/` and `repo/` (trust roots and publish logic)
