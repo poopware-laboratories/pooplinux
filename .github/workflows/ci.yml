@@ -111,7 +111,9 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           EVENT: ${{ github.event_name }}
         run: |
-          pattern='Generated with|Claude-Session|claude\.ai/code|claude\.com/claude-code'
+          # Footer lines only: "Generated with" and "Claude-Session:" must start a line.
+          # Links to the tools are rejected anywhere in the text.
+          pattern='^[[:space:]]*(🤖 )?Generated with|^[[:space:]]*Claude-Session:|claude\.ai/code|claude\.com/claude-code'
           if [[ "$EVENT" == "push" ]]; then
             text="$(git log -1 --format=%B)"
           else
