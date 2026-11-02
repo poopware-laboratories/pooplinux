@@ -1,0 +1,123 @@
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Required checks for main: docs, lint, secrets, policy.
+# Each job name is a branch-protection context. Renaming a job breaks the rule.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Required files and relative links
+        run: bash scripts/check-docs.sh
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: shellcheck (style level)
+        run: |
+          shopt -s nullglob
+          files=(scripts/*.sh)
+          if (( ${#files[@]} )); then
+            shellcheck -S style "${files[@]}"
+          fi
+
+      - name: actionlint (workflow syntax and expressions)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+      - name: SPDX header on scripts and workflows
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if ! head -n 3 "$f" | grep -q 'SPDX-License-Identifier: BSD-3-Clause'; then
+              echo "missing SPDX header: $f"
+              fail=1
+            fi
+          done < <(git ls-files 'scripts/*.sh' '.github/workflows/*.yml')
+          [ "$fail" -eq 0 ]
+
+      - name: No trailing whitespace or CRLF in code files
+        run: |
+          if git grep -nIE '[[:space:]]+$' -- '*.sh' '*.yml' '*.yaml' '.gitignore'; then
+            echo "trailing whitespace found"
+            exit 1
+          fi
+          if git grep -nIP '\r$' -- '*.sh' '*.yml' '*.yaml' '*.md'; then
+            echo "CRLF line endings found"
+            exit 1
+          fi
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: No key material or tokens in tracked files
+        run: |
+          pattern='BEGIN ([A-Z]+ )*PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}'
+          if git grep -nIE "$pattern" -- .; then
+            echo "possible secret found in tracked files"
+            exit 1
+          fi
+
+      - name: No private key files
+        run: |
+          if git ls-files | grep -E '(^|/)[^/]*\.(key|pem|p12|pfx|kbx|gpg)$|(^|/)secrets/|(^|/)keys/private/'; then
+            echo "private key material is tracked"
+            exit 1
+          fi
+
+  policy:
+    name: policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Conventional Commits title (pull requests)
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          re='^(feat|fix|docs|build|ci|refactor|test|chore|perf|security|revert)(\([a-z0-9._-]+\))?!?: .{1,72}$'
+          if [[ ! $TITLE =~ $re ]]; then
+            echo "PR title must follow Conventional Commits, under 72 characters after the prefix: $TITLE"
+            exit 1
+          fi
+
+      - name: No attribution footers (PR text on pull requests, head commit on main)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          pattern='Generated with|Claude-Session|claude\.ai/code|claude\.com/claude-code'
+          if [[ "$EVENT" == "push" ]]; then
+            text="$(git log -1 --format=%B)"
+          else
+            text="$(printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY")"
+          fi
+          if printf '%s\n' "$text" | grep -qiE "$pattern"; then
+            echo "attribution footer or session link found"
+            exit 1
+          fi

@@ -17,7 +17,6 @@ Entries go under **Unreleased** until a release is cut. Security fixes go under 
 ### Changed
 
 - Design revised from an Arch-packaging model to a from-scratch base built by our own recipes.
-- Project license changed from EUPL-1.2 to BSD-3-Clause. The kernel stays GPL-2.0-only.
 - Single edition `tty`. Desktop is out of scope for v0.
 - C library is `musl-poop`, a fork of musl. Init is `poopsuite`. The package manager `pkgmgr` lives in `poopware-laboratories/poop`.
 

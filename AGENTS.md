@@ -26,7 +26,7 @@ Status: early foundations. The kernel fork is currently identical to upstream. M
 | `AGENTS.md` / `CLAUDE.md` | Agent instructions | `CLAUDE.md` imports this file |
 | `CONTRIBUTING.md` | Human contributor workflow | Source of truth for *how humans work here* |
 | `LICENSE` | BSD-3-Clause | Applies to our code, recipes and docs |
-| `CHANGELOG.md` | Release notes | Keep a Changelog format (to be created) |
+| `CHANGELOG.md` | Release notes | Keep a Changelog format |
 | `Makefile` | The only supported build entry point | Targets in §5 |
 | `kernel/` | `source.env`, kernel config fragments, `build.sh` | `source.env` is the only place the kernel SHA lives |
 | `recipes/poop/`, `recipes/poopsuite/`, `recipes/musl-poop/` | Pins to our component repos (package manager, init, libc) | Pins are full SHAs. The code lives in the component repos, not here. |
@@ -121,8 +121,9 @@ Any claim that a change makes something faster, smaller, or lighter needs measur
 
 - Use **Conventional Commits**: `type(scope): summary`, for example `feat(pkgmgr): verify index signature before parsing`.
 - Keep the subject under 72 characters. Use the body to explain *why*.
-- When you are an AI agent writing a commit, end the commit message with the trailer `Co-Authored-By: <model name> <noreply@anthropic.com>`. Do not add other attribution lines.
-- PR descriptions follow `.github/PULL_REQUEST_TEMPLATE.md`. For AI-authored PRs made with Claude Code, end the description with the line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+- When you are an AI agent writing a commit, end the commit message with the trailer `Co-Authored-By: <model name> <noreply@anthropic.com>`. That is the only attribution line allowed.
+- **Never add a "Generated with" footer, a session link, or any equivalent tool-attribution line** (for example `Claude-Session:`) to a commit message, PR title, PR description or PR comment. If AI assistance matters to a reviewer, say so in plain words in the PR's "Notes for reviewers" section, and name the tool.
+- PR descriptions follow `.github/PULL_REQUEST_TEMPLATE.md`, without any footer added.
 
 ---
 
@@ -165,7 +166,7 @@ Build outputs go in `out/` and `work/`. Never commit them.
 
 ## 7. Sensitive areas (extra caution)
 
-Changes in these areas need a maintainer review, even if CI is green:
+Changes in these areas must be called out in the PR description, with the risk stated. CI is strict on every PR, and reviews are optional:
 
 - `.github/workflows/` (CI runs with access to signing secrets)
 - `keyring/` and `repo/` (trust roots and publish logic)
