@@ -1,0 +1,42 @@
+# Build outputs (mkarchiso, makepkg, kernel)
+out/
+work/
+pkg/
+src/
+*.pkg.tar.*
+*.iso
+*.img
+*.sha256
+*.sha256sum
+*.sig
+
+# Kernel build artefacts if a checkout is ever placed in-tree
+*.o
+*.ko
+*.cmd
+.config
+.config.old
+vmlinux*
+System.map
+
+# Agent / editor worktrees and state
+.claude/worktrees/
+.claude/settings.local.json
+.idea/
+.vscode/
+*.swp
+
+# Secrets and keys: never commit these
+*.gpg
+*.key
+*.pem
+*.p12
+*.pfx
+*.kbx
+.gnupg/
+secrets/
+keys/private/
+
+# OS noise
+.DS_Store
+Thumbs.db
