@@ -280,17 +280,17 @@ AI tools are welcome as long as the human who opens the PR has read and understo
 
 ## 17. Licensing
 
-- **Our code, recipes and documentation:** **EUPL-1.2**, as stated in the root [`LICENSE`](LICENSE) file.
+- **Our code, recipes and documentation:** **BSD-3-Clause**, as stated in the root [`LICENSE`](LICENSE) file.
 - **New source files** carry the SPDX header:
 
   ```
-  SPDX-License-Identifier: EUPL-1.2
+  SPDX-License-Identifier: BSD-3-Clause
   ```
 
   Generated files and vendored third-party files keep the license they came with.
-- **Kernel source (`poopware-laboratories/linux`):** GPL-2.0-only, as upstream. The EUPL-1.2 appendix lists GPL-2.0 as a compatible licence, so EUPL-licensed code and the kernel can be combined.
+- **Kernel source (`poopware-laboratories/linux`):** GPL-2.0-only, as upstream. BSD-3-Clause is GPL-compatible, so our BSD-licensed code and the kernel can be combined.
 - **Upstream software built by recipes:** each keeps its upstream license. The `license` field in `recipe.toml` must match it.
-- By contributing, you agree that your contribution is licensed under EUPL-1.2, unless the file you change states another license that applies to it.
+- By contributing, you agree that your contribution is licensed under BSD-3-Clause, unless the file you change states another license that applies to it.
 
 ## 18. Maintainers
 
