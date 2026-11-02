@@ -177,7 +177,7 @@ These are the interfaces other parts of the repo and external consumers depend o
 ```
 pooplinux/
 ├── README.md                 entry point for humans
-├── LICENSE                   EUPL-1.2 (our code, recipes, docs)
+├── LICENSE                   BSD-3-Clause (our code, recipes, docs)
 ├── ARCHITECTURE.md           this document
 ├── AGENTS.md                 instructions for AI coding agents (canonical)
 ├── CLAUDE.md                 Claude Code entry point; imports AGENTS.md
@@ -560,7 +560,7 @@ Each choice has the reason we made it and the condition under which we would rec
 | **Testing** | `pkgmgr` unit tests in the `poop` repo; scenario tests in a stage root here; QEMU+OVMF boot and install tests | Manual testing only | Automatable and repeatable. | Hardware-in-the-loop tests (§7). |
 | **Hosting** | Object storage origin behind a CDN (*Proposed*, ADR-010) | GitHub Releases; self-hosted server | Egress-heavy workload is cheap there. The maintainers' answer did not cover hosting; see §8 Q5. | Egress costs or provider limits change. |
 | **Commit / PR conventions** | Conventional Commits; PR template | Free-form | Machine-readable changelog. | — |
-| **Licensing** | Our code, recipes and docs under **EUPL-1.2** (ADR-014, Accepted) | MIT; GPL-2.0 for everything | Maintainers' decision. EUPL-1.2 lists GPL-2.0 as compatible, so it fits with the GPL kernel. | Legal review finds an incompatibility. |
+| **Licensing** | Our code and recipes under **BSD-3-Clause** (maintainer decision). Upstream components keep their own licenses; the kernel stays GPL-2.0-only. BSD-3-Clause is GPL-compatible. | EUPL-1.2; MIT; GPL-2.0 for everything; one license for all | Maintainers' decision. Short, widely understood permissive licence that is compatible with the GPL kernel. | Legal review finds an incompatibility, or a contributor base needs a different licence. |
 | **Branding** | Own name, logo and text in `branding/`. No third-party marks. | Keeping upstream branding | Avoids trademark confusion. | — |
 
 ---
@@ -631,17 +631,12 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 - **Gains:** small, auditable, fits a single-admin system.
 - **Costs:** less policy depth than sudo. Users who need fine-grained rules will have to ask for them.
 
-### ADR-013 — musl-poop as C library (Accepted, maintainer decision)
+### ADR-014 — BSD-3-Clause for project code (Accepted, maintainer decision)
 
-- **Gains:** a small, clean libc we control, with a performance focus that matches our goals.
-- **Costs:** third-party software that depends on glibc behaviour is not supported in the base. We maintain a downstream fork, so upstream musl changes must be reviewed and merged on our schedule. Performance claims about musl-poop require benchmarks (`AGENTS.md` §4.5).
-
-### ADR-014 — EUPL-1.2 for project code (Accepted, maintainer decision)
-
-- **Options:** EUPL-1.2; MIT; GPL-2.0 for everything.
-- **Chosen:** EUPL-1.2 in `LICENSE` for our code, recipes and documentation.
-- **Gains:** a licence with an EU legal basis and an appendix of compatible licences, including GPL-2.0, so the GPL-2.0-only kernel and our code can be combined.
-- **Costs:** fewer contributors and downstream projects are familiar with EUPL than with MIT or GPL. Every new source file needs the SPDX header (CONTRIBUTING §17).
+- **Options:** BSD-3-Clause; EUPL-1.2; MIT; GPL-2.0 for everything.
+- **Chosen:** BSD-3-Clause in `LICENSE` for our code, recipes and documentation. This replaces the earlier choice of EUPL-1.2.
+- **Gains:** a short permissive licence that contributors and downstream projects already know. It is GPL-compatible, so the GPL-2.0-only kernel and our code can be combined. The non-endorsement clause keeps the project name from being used to promote derived works.
+- **Costs:** no copyleft, so downstream projects may ship modified versions without publishing their changes. Every new source file needs the SPDX header (CONTRIBUTING §17).
 
 ---
 

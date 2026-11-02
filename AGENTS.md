@@ -25,8 +25,8 @@ Status: early foundations. The kernel fork is currently identical to upstream. M
 | `ARCHITECTURE.md` | Design, utility choices, ADR log, milestones | Source of truth for *why* |
 | `AGENTS.md` / `CLAUDE.md` | Agent instructions | `CLAUDE.md` imports this file |
 | `CONTRIBUTING.md` | Human contributor workflow | Source of truth for *how humans work here* |
-| `LICENSE` | EUPL-1.2 | Applies to our code, recipes and docs |
-| `CHANGELOG.md` | Release notes | Keep a Changelog format |
+| `LICENSE` | BSD-3-Clause | Applies to our code, recipes and docs |
+| `CHANGELOG.md` | Release notes | Keep a Changelog format (to be created) |
 | `Makefile` | The only supported build entry point | Targets in §5 |
 | `kernel/` | `source.env`, kernel config fragments, `build.sh` | `source.env` is the only place the kernel SHA lives |
 | `recipes/poop/`, `recipes/poopsuite/`, `recipes/musl-poop/` | Pins to our component repos (package manager, init, libc) | Pins are full SHAs. The code lives in the component repos, not here. |
@@ -64,7 +64,7 @@ These are hard rules. If a task seems to need one broken, stop and ask a maintai
 10. **Do not disable tests, lint checks, boot gates or the reproducibility report** to get a green build. If a check is wrong, fix the check in its own commit and explain why.
 11. **Do not add install-time scripts to `pkgmgr` packages.** Packages in v0 carry no scripts that run as root during install. Configuration goes in templates under `etc/` or service directories.
 12. **Do not introduce a dependency on Arch packages, `makepkg`, `pacman` or systemd into the target system.** The live environment may use archiso tooling. The installed system may not.
-13. **Every new source file gets the EUPL-1.2 SPDX header** (`SPDX-License-Identifier: EUPL-1.2`), unless it is a generated file or a vendored file that carries its own license.
+13. **Every new source file gets the BSD-3-Clause SPDX header** (`SPDX-License-Identifier: BSD-3-Clause`), unless it is a generated file or a vendored file that carries its own license.
 
 ---
 

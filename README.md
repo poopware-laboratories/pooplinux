@@ -34,4 +34,4 @@ Build targets (`make lint`, `make recipe-check`, `make iso`) arrive in Phases 0â
 
 ## License
 
-Our code, recipes and documentation: [EUPL-1.2](LICENSE). The kernel is GPL-2.0-only, as upstream. Each upstream package keeps its own license.
+Our code, recipes and documentation: [BSD-3-Clause](LICENSE). The kernel is GPL-2.0-only, as upstream. Each upstream package keeps its own license.
