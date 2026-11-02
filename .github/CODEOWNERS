@@ -1,0 +1,31 @@
+# CODEOWNERS for poopware-laboratories/pooplinux
+#
+# Ownership rules are commented out until the handles in MAINTAINERS.md are filled in.
+# Uncomment each line, replacing the placeholder with real GitHub handles (for example @alice or @org/team).
+# A line with no handle is an error, so do not uncomment a rule without a handle.
+#
+# Sensitive areas (AGENTS.md §7) need two reviews. Give each one two owners where possible.
+
+# Release and project-wide
+# *                                  @TODO-project-lead
+
+# Trust roots and publishing
+# /keyring/                          @TODO-signing-owner @TODO-second-reviewer
+# /repo/                             @TODO-signing-owner @TODO-second-reviewer
+
+# Kernel
+# /kernel/                           @TODO-kernel-owner
+# /recipes/linux-poop/               @TODO-kernel-owner
+
+# Bootstrap and recipes
+# /bootstrap/                        @TODO-bootstrap-owner
+# /sandbox/                          @TODO-bootstrap-owner @TODO-security-owner
+
+# Installer and image
+# /installer/                        @TODO-installer-owner
+# /iso/                              @TODO-installer-owner
+# /initramfs/                        @TODO-installer-owner
+
+# Security and CI
+# /SECURITY.md                       @TODO-security-owner
+# /.github/workflows/                @TODO-security-owner @TODO-project-lead

@@ -1,8 +1,12 @@
 # Poop Linux — Architecture
 
-Status: **Draft v0.2** (2026-11-02). Revised after maintainer input: Poop Linux is a **from-scratch distribution** with **its own package manager**, **TTY-only** for now, and installs are **bootstrapped from an archiso live environment**.
+Status: **Draft v0.3** (2026-11-02). Revised after maintainer input:
 
-Decisions marked *Accepted* are binding for v0.x. *Proposed* decisions need maintainer sign-off before the milestone that depends on them. Each Proposed row in §5 also appears as an open question in §8.
+- From-scratch distribution, TTY-only, bootstrapped from an archiso live environment (v0.2).
+- Init is **poopsuite** (our own), the C library is **musl-poop** (our musl fork), and the package manager `pkgmgr` lives in its own repo, **poopware-laboratories/poop**, with its language still open (v0.3).
+- Project code, recipes and docs are licensed under **BSD-3-Clause** (v0.2).
+
+Decisions marked *Accepted* are binding for v0.x. *Proposed* decisions need maintainer sign-off before the milestone that depends on them. Open items are collected in §8.
 
 This document is the system design for the distribution and for this repository. It answers four questions: what we build, how the pieces fit, which utilities we chose and why, and what we will revisit as the project grows. Process rules live in [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md).
 
@@ -10,15 +14,19 @@ This document is the system design for the distribution and for this repository.
 
 ## 0. Summary
 
-Poop Linux is an x86_64 Linux system built from source by its own recipes. The kernel comes from our fork, [`poopware-laboratories/linux`](https://github.com/poopware-laboratories/linux), pinned by commit. Everything else, from the C library to the shell, is built from upstream source by recipes in this repo. Packages are installed and upgraded by **our own package manager**, which verifies signatures and keeps a transactional local database.
+Poop Linux is an x86_64 Linux system built from source by its own recipes. Its core components are ours:
 
-There is no dependency on Arch's packages in the target system. Arch's **archiso** is used in exactly one place: the **live bootstrap environment** that a user boots from the ISO. That environment provides the host compiler used for the first build stage, and it runs our installer, which bootstraps the target system from our repository.
+| Component | Where it lives | Status |
+|-----------|----------------|--------|
+| Kernel (`linux-poop`) | [`poopware-laboratories/linux`](https://github.com/poopware-laboratories/linux), a fork of `torvalds/linux`, pinned by commit | Identical to upstream today (`0 ahead / 0 behind`, head `Linux 7.4-rc1`) |
+| C library | [`poopware-laboratories/musl-poop`](https://github.com/poopware-laboratories/musl-poop), our musl fork, focused on performance | Pinned in `recipes/musl-poop/` |
+| Init, rc, logger, user tools | [`poopware-laboratories/poopsuite`](https://github.com/poopware-laboratories/poopsuite), a self-contained C boot stack | Pinned in `recipes/poopsuite/` |
+| Package manager (`pkgmgr`) | [`poopware-laboratories/poop`](https://github.com/poopware-laboratories/poop), "package manager for pooplinux" | Language to be decided (Q4). Pinned in `recipes/poop/` |
+| Everything else | Upstream source, built by recipes in this repo | — |
 
-Key facts at the time of writing:
+Packages are installed and upgraded by `pkgmgr`, which verifies signatures and keeps a transactional local database. archiso is used in exactly one place: the **live bootstrap environment** that a user boots from the ISO. It supplies the host toolchain for the first build stage, and it runs our installer, which bootstraps the target system from our repository. Arch's packages are never part of the target system.
 
-- The kernel fork is **currently identical to upstream** (`0 ahead / 0 behind` `torvalds/linux` master, head `Linux 7.4-rc1`). There are no Poop-specific kernel patches yet.
-- `origin` is `git@github.com:poopware-laboratories/pooplinux.git`.
-- The desktop is out of scope for v0. The only edition is **`tty`**, which boots to a text console.
+The desktop is out of scope for v0. The only edition is **`tty`**, which boots to a text console.
 
 ---
 
@@ -28,15 +36,16 @@ Key facts at the time of writing:
 
 | ID | Requirement |
 |----|-------------|
-| F1 | Build every system package from source, using recipes in this repo. |
+| F1 | Build every system package from source, using recipes in this repo, or pin one of our own component repos. |
 | F2 | Build the kernel (`linux-poop`) from a **pinned commit** of `poopware-laboratories/linux`. |
-| F3 | Provide a package manager that installs, removes, upgrades and downgrades packages, with signature checks and an atomic transaction model. |
+| F3 | Install, remove, upgrade and downgrade packages with `pkgmgr`, with signature checks and an atomic transaction model. |
 | F4 | Build a bootable x86_64 live ISO with archiso. The live environment bootstraps a target system from our repository. |
 | F5 | Install to disk on UEFI firmware, with ext4 root and a FAT ESP. |
-| F6 | Upgrade installed systems with our package manager, and keep the previous kernel bootable after a kernel upgrade. |
+| F6 | Upgrade installed systems with `pkgmgr`, and keep the previous kernel bootable after a kernel upgrade. |
 | F7 | Build the system from its own packages (self-hosting). Rebuilding the whole set with the system's own tools must succeed. |
 | F8 | Make release artifacts reproducible from the repo plus pinned inputs, wherever the upstream tools allow it. |
 | F9 | Provide a text-console environment with networking, time sync, a firewall and an SSH server as optional packages. |
+| F10 | Use `poopsuite` as PID 1 and as the service supervisor. |
 
 ### 1.2 Non-functional requirements
 
@@ -46,7 +55,8 @@ These are **proposed targets**. Each one gets measured in CI before we claim it.
 |------|--------|-------------|
 | Full bootstrap time (stage0 to ISO) | < 6 h on a 16-core runner, warm caches | CI job timing |
 | Kernel build time | < 30 min on a 16-core runner | CI job timing |
-| Package manager install of 200 packages from a local repo | < 60 s excluding downloads | Benchmark (§4.5 of `AGENTS.md`) |
+| `pkgmgr` install of 200 packages from a local repo | < 60 s excluding downloads | Benchmark (`AGENTS.md` §4.5) |
+| C library performance | Measured against the upstream musl baseline on a fixed benchmark set | Benchmark (`AGENTS.md` §4.5) |
 | Boot to login prompt (QEMU, OVMF, 2 vCPU, 2 GiB) | < 20 s | Boot smoke test |
 | Installed base system size | < 1.5 GiB | Image audit |
 | Critical kernel CVE to shipped fix | < 72 h after upstream fix lands | Release log |
@@ -56,10 +66,11 @@ These are **proposed targets**. Each one gets measured in CI before we claim it.
 
 ### 1.3 Constraints and assumptions
 
-- **Team (assumed):** 2–4 part-time maintainers. A from-scratch base is a large amount of work for that team, so the scope in §9 is deliberately narrow.
+- **Team (assumed):** 2–4 part-time maintainers. A from-scratch base, plus our own libc, init and package manager, is a large amount of work for that team. Scope is kept narrow (§9).
 - **Timeline (assumed):** no hard date. The first milestone is "a text-console system bootstrapped from the live ISO and booted in QEMU".
-- **Existing stack:** the kernel fork (GPL-2.0), a GitHub organisation, and an empty `pooplinux` repo.
-- **Bootstrap seed:** the first build stage uses the host toolchain in the archiso environment. This is an explicit trust dependency (see §3.2 and §7).
+- **Existing stack:** the kernel fork (GPL-2.0), our component repos (above), a GitHub organisation, and an empty `pooplinux` repo.
+- **C library consequence:** the base is built on musl-poop, not glibc. Third-party software that needs glibc is not supported in the base. This is an accepted trade-off (ADR-013).
+- **Bootstrap seed:** the first build stage uses the host toolchain in the archiso environment. This is an explicit trust dependency (§3.2, §7).
 - **Hardware scope v0:** x86_64, UEFI only, TTY only.
 
 ---
@@ -69,12 +80,15 @@ These are **proposed targets**. Each one gets measured in CI before we claim it.
 ### 2.1 Component diagram
 
 ```
-  torvalds/linux ───▶ poopware-laboratories/linux        (kernel fork, pinned by SHA)
+  torvalds/linux ───▶ poopware-laboratories/linux       (kernel fork, pinned by SHA)
+  musl upstream  ───▶ poopware-laboratories/musl-poop   (libc, pinned by SHA)
+                      poopware-laboratories/poopsuite   (init + rc + logger, pinned)
+                      poopware-laboratories/poop        (pkgmgr, pinned)
                                    │
-                                   ▼
+                                   ▼  pinned in recipes/ (or kernel/source.env)
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ recipes/   one directory per package: recipe.toml + build.sh               │
-│            (toolchain, libc, base userland, linux-poop, poopkg, installer)│
+│            (toolchain, libc, base userland, linux-poop, poop, poopsuite)  │
 └───────────────┬───────────────────────────────────────────────────────────┘
                 │ built in a sandbox by `pkgmgr build` (bootstrap stages §3.2)
                 ▼
@@ -87,8 +101,8 @@ These are **proposed targets**. Each one gets measured in CI before we claim it.
                 ▼
 ┌───────────────────────────────┐        ┌──────────────────────────────────┐
 │ Live environment (archiso)    │───────▶│ Installed system (tty)           │
-│  host toolchain (stage0 only) │ pkgmgr │  pkgmgr db, kernel, init, network│
-│  pkgmgr, installer, keyring   │ --root │  bootloader (Limine), sshd (opt) │
+│  host toolchain (stage0 only) │ pkgmgr │  pkgmgr db, kernel, poopsuite    │
+│  pkgmgr, installer, keyring   │ --root │  musl-poop, Limine, sshd (opt)   │
 └───────────────────────────────┘        └──────────────────────────────────┘
                 ▲
                 │ mkarchiso (privileged, CI self-hosted runner)
@@ -98,22 +112,23 @@ These are **proposed targets**. Each one gets measured in CI before we claim it.
 ### 2.2 Software stack (what runs on an installed system)
 
 ```
-  ┌──────────────────────────────────────────────────────────────┐
-  │ Login        agetty on tty1–tty6 · login(1) · doas           │
-  ├──────────────────────────────────────────────────────────────┤
-  │ Services     runit (supervision) · dhcpcd · iwd · chrony     │
-  │              nftables (poop-firewall) · openssh (optional)   │
-  ├──────────────────────────────────────────────────────────────┤
-  │ Userspace    glibc · GNU coreutils · util-linux · findutils  │
-  │              GNU sed/grep/gawk/tar · bash · make · iproute2  │
-  │              poopkg (our package manager)                    │
-  ├──────────────────────────────────────────────────────────────┤
-  │ Kernel       linux-poop (poopware-laboratories/linux)        │
-  │              + initramfs from our own generator (busybox)    │
-  ├──────────────────────────────────────────────────────────────┤
-  │ Boot         Limine (UEFI) → signed kernel EFI image         │
-  │ Firmware     UEFI, optional Secure Boot with user keys       │
-  └──────────────────────────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────────────────────┐
+  │ Login        agetty on tty1–tty6 · login(1) · doas              │
+  ├────────────────────────────────────────────────────────────────┤
+  │ Services     poopsuite (PID 1, supervision, rc, logger, user)   │
+  │              dhcpcd · iwd · chrony · nftables (poop-firewall)   │
+  │              openssh (optional)                                 │
+  ├────────────────────────────────────────────────────────────────┤
+  │ Userspace    musl-poop (libc) · GNU coreutils · util-linux       │
+  │              findutils · GNU sed/grep/gawk/tar · bash · make     │
+  │              iproute2 · pkgmgr (package manager)                 │
+  ├────────────────────────────────────────────────────────────────┤
+  │ Kernel       linux-poop (poopware-laboratories/linux)            │
+  │              + initramfs from our own generator (busybox)        │
+  ├────────────────────────────────────────────────────────────────┤
+  │ Boot         Limine (UEFI) → signed kernel EFI image             │
+  │ Firmware     UEFI, optional Secure Boot with user keys           │
+  └────────────────────────────────────────────────────────────────┘
 ```
 
 ### 2.3 Data flows
@@ -139,7 +154,7 @@ recipes/*/recipe.toml ──▶ fetch sources (hash-verified, cached) ──▶ 
 ISO boots (UEFI) ──▶ installer (POSIX sh + dialog, TTY)
   ──▶ partition: ESP (FAT32) + root (ext4)
   ──▶ pkgmgr --root /mnt --repo <url> install base linux-poop bootloader-limine ...
-  ──▶ write fstab, hostname, users, locale, timezone
+  ──▶ write fstab, hostname, users, locale, timezone, poopsuite service links
   ──▶ install Limine + signed kernel image to the ESP
   ──▶ reboot into the installed system
 ```
@@ -167,6 +182,9 @@ pooplinux/
 ├── AGENTS.md                 instructions for AI coding agents (canonical)
 ├── CLAUDE.md                 Claude Code entry point; imports AGENTS.md
 ├── CONTRIBUTING.md           contributor workflow
+├── SECURITY.md               vulnerability reporting and response targets
+├── CODE_OF_CONDUCT.md        conduct standards and enforcement
+├── MAINTAINERS.md            maintainers, owned areas, channels
 ├── CHANGELOG.md              release notes (Keep a Changelog format)
 ├── Makefile                  the only supported build entry point
 ├── .gitignore
@@ -176,15 +194,13 @@ pooplinux/
 │   │   ├── base.config       starting kernel config
 │   │   └── fragments/*.config  Poop-specific options, merged on top of base
 │   └── build.sh              kernel build driver (used by recipes/linux-poop)
-├── pkgmgr/                   our package manager (C11), with its own tests
-│   ├── src/
-│   ├── tests/
-│   └── README.md
 ├── recipes/                  one directory per package
-│   ├── binutils/  gcc/  glibc/  linux-headers/  ...  (bootstrap stages §3.2)
+│   ├── binutils/  gcc/  linux-headers/  ...   toolchain and base (bootstrap §3.2)
+│   ├── musl-poop/            C library, pinned to a poopware-laboratories/musl-poop SHA
+│   ├── poopsuite/            init, rc, logger, user; pinned to a poopsuite SHA
+│   ├── poop/                 package manager; pinned to a poopware-laboratories/poop SHA
 │   ├── linux-poop/           kernel package recipe (uses kernel/)
-│   ├── poopkg/               the package manager, packaged by itself
-│   └── poop-firewall/  poop-base/  ...   distro-owned packages
+│   └── poop-firewall/  poop-base/  ...        distro-owned packages
 ├── bootstrap/
 │   ├── stage0/               host-toolchain checks and seed hashes
 │   ├── stage1/               temporary toolchain build order
@@ -192,7 +208,7 @@ pooplinux/
 ├── sandbox/                  build sandbox configuration and helper scripts
 ├── initramfs/                initramfs generator and init script
 ├── etc/                      default /etc templates (never machine-specific)
-├── init/services/            runit service directories
+├── init/services/            poopsuite service definitions (format defined by poopsuite)
 ├── keyring/                  PUBLIC keys only (poop-keyring source)
 ├── repo/                     index generation, signing scripts, channel rules
 ├── installer/                TTY installer (POSIX sh, dialog)
@@ -200,7 +216,7 @@ pooplinux/
 ├── branding/                 os-release, issue, motd, boot splash text
 ├── tests/
 │   ├── lint/                 recipe, shell, config checks
-│   ├── pkgmgr/               package manager scenario tests (install/remove/upgrade/rollback)
+│   ├── pkgmgr/               scenario tests (install/remove/upgrade/rollback) in a stage root
 │   ├── reproducibility/      rebuild-and-compare checks
 │   └── boot/                 QEMU+OVMF boot and install tests
 ├── docs/
@@ -208,12 +224,25 @@ pooplinux/
 └── .github/workflows/        CI definitions
 ```
 
+Note: `pkgmgr` source, its unit tests and its fuzz targets live in `poopware-laboratories/poop`. This repo pins a commit and tests the integrated result.
+
+**External components and pins:**
+
+| Component | Repo | Pinned in | Role | Owned by |
+|-----------|------|-----------|------|----------|
+| Kernel fork | `poopware-laboratories/linux` | `kernel/source.env` | Kernel | This project |
+| C library | `poopware-laboratories/musl-poop` | `recipes/musl-poop/recipe.toml` | libc | This project (fork of musl) |
+| Init and boot stack | `poopware-laboratories/poopsuite` | `recipes/poopsuite/recipe.toml` | PID 1, rc, logger, user tools | This project |
+| Package manager | `poopware-laboratories/poop` | `recipes/poop/recipe.toml` | `pkgmgr` | This project |
+
+Every pin is a full commit SHA. Bumping one is a PR in this repo that states the old and new SHA, and runs the integration tests (§10).
+
 **Recipe contract (`recipes/<name>/recipe.toml`):**
 
 ```toml
 name    = "coreutils"
-version = "9.5"          # upstream version; pkgrel is separate
-release = 1              # distro revision for this recipe
+version = "9.5"          # upstream version; release is the distro revision
+release = 1
 license = "GPL-3.0-or-later"
 stage   = "base"         # bootstrap stage, see §3.2
 
@@ -222,17 +251,31 @@ url    = "https://ftp.gnu.org/gnu/coreutils/coreutils-9.5.tar.xz"
 sha256 = "<64 hex chars, required>"
 
 [depends]
-build   = ["glibc", "make"]
-runtime = ["glibc"]
+build   = ["musl-poop", "make"]
+runtime = ["musl-poop"]
+```
+
+A recipe that pins one of our own repos uses a git source with a commit SHA:
+
+```toml
+name    = "poop"
+version = "<version of the poop repo at this SHA>"
+release = 1
+license = "BSD-3-Clause"
+stage   = "base"
+
+[[source]]
+url    = "https://github.com/poopware-laboratories/poop.git"
+commit = "<40 hex chars, required; branch names are rejected>"
 ```
 
 - `build.sh` defines the functions `prepare`, `build`, `check` (optional), `install`. It runs inside the sandbox with `$SRCDIR`, `$PKGDIR` and `$DESTDIR` set. Nothing is read from the host except declared inputs.
-- Every source needs a hash. Git sources must be pinned by full commit SHA, and the URL must not point at a branch.
+- Every archive source needs a `sha256`. Git sources are pinned by full commit SHA.
 
 **Package file contract (`<name>-<version>-<release>-<arch>.pkg.tar.zst`):**
 
 - A zstd-compressed tar archive.
-- Contains a `.pkginfo` metadata file (key=value, documented in `pkgmgr/README.md`), followed by the files, all with normalised owners (0:0), sorted entries and `SOURCE_DATE_EPOCH` mtimes.
+- Contains a `.pkginfo` metadata file (key=value, documented in the `poop` repo), followed by the files, all with normalised owners (0:0), sorted entries and `SOURCE_DATE_EPOCH` mtimes.
 - Accompanied by a detached Ed25519 signature `<file>.sig`, in minisign-compatible format.
 
 **Repository index contract:**
@@ -248,7 +291,7 @@ runtime = ["glibc"]
 | `testing` | Every successful CI build of `main` | Maintainers, early adopters | Automatic on green CI |
 | `stable` | Default for the installer and for `pkgmgr upgrade` | Everyone | Install test + boot test pass; kernel changes spend 7 days in testing |
 
-**Pinned inputs (`kernel/source.env`):**
+**Pinned kernel inputs (`kernel/source.env`):**
 
 ```bash
 POOP_KERNEL_REPO="https://github.com/poopware-laboratories/linux.git"
@@ -256,7 +299,7 @@ POOP_KERNEL_SHA="6628e7d4c6b25c8d18f1345e3a20d21829aae7e4"   # Linux 7.4-rc1 at 
 POOP_KERNEL_VERSION="7.4rc1"
 ```
 
-**Versioning:** packages use upstream version plus a distro `release` number. The kernel's `version` mirrors upstream, and the Poop revision is the `release`. Kernel git tags are `poop-v<kver>-<n>`. ISO names are `poop-tty-<YYYY.MM.DD>-x86_64.iso`.
+**Versioning:** packages use the upstream version plus a distro `release` number. Our own components use their repo's version at the pinned commit. Kernel git tags are `poop-v<kver>-<n>`. ISO names are `poop-tty-<YYYY.MM.DD>-x86_64.iso`.
 
 ---
 
@@ -264,9 +307,9 @@ POOP_KERNEL_VERSION="7.4rc1"
 
 ### 3.1 Package manager (`pkgmgr`)
 
-This is the largest piece of new software in the project. Its design is kept deliberately small.
+`pkgmgr` is developed in `poopware-laboratories/poop`. This section is the **behaviour specification** the `poop` repo must meet. It does not choose a language or an implementation.
 
-**Language and dependencies (Proposed):** C11, built with the bootstrap toolchain. Its runtime dependencies are libcurl (HTTPS fetch), libarchive (safe tar extraction), libzstd, SQLite (local database) and libsodium (Ed25519 verification). Each dependency is a recipe in this repo, built before `pkgmgr`. Rust was considered and rejected for v0, because bootstrapping rustc is much heavier than bootstrapping C. See ADR-011.
+**Language (open, Q4):** the `poop` repo has not yet declared one. The options considered are C11 (cheapest bootstrap, since stage0 already needs a C compiler; ADR-011) and Rust (memory-safe by default, but a much heavier bootstrap). The dependency list below assumes C and must be revised if Rust is chosen.
 
 **Commands (v0):**
 
@@ -281,7 +324,7 @@ This is the largest piece of new software in the project. Its design is kept del
 | `pkgmgr build <recipe>` | Build one recipe in the sandbox and produce a package |
 | `pkgmgr pack` / `pkgmgr repo-index` | Used by the repo tooling |
 
-**Local database:** one SQLite file at `/var/lib/poopkg/db.sqlite`. Tables: `packages` (installed metadata), `files` (path → package, hash, mode), `transactions` (id, time, action, before/after), `pending` (crash-recovery journal). Every change is a single SQLite transaction.
+**Local database (assumed):** one SQLite file at `/var/lib/poopkg/db.sqlite`. Tables: `packages` (installed metadata), `files` (path → package, hash, mode), `transactions` (id, time, action, before/after), `pending` (crash-recovery journal). Every change is a single SQLite transaction. The database path is subject to Q1, the binary name.
 
 **Transaction model:**
 
@@ -295,28 +338,30 @@ This is the largest piece of new software in the project. Its design is kept del
 
 If the power fails between steps 5 and 7, `pkgmgr` finishes or reverts the transaction on next start. Old package archives stay in `/var/cache/poopkg/` so `rollback` works without the network.
 
-**Configuration files:** files under `/etc` that a user has changed are never overwritten silently. An upgrade writes the new version as `<file>.new` and reports it. `pkgmgr` does not ship a merge tool in v0.
+**Configuration files:** files under `/etc` that a user has changed are never overwritten silently. An upgrade writes the new version as `<file>.new` and reports it. There is no merge tool in v0.
 
 **Dependency resolution:** a graph walk with version constraints (`>=`, `=`). Conflicts and cycles are errors. A full SAT solver is deferred to §7.
 
-**Security properties:** signatures are checked before any file is written, and package archives are extracted with `libarchive` in a mode that refuses absolute paths, `..` components, and device nodes outside an allow-list. Files are never executed during install. Install scripts are not supported in v0, which removes an entire class of privilege problems. If a package needs post-install setup, it ships a systemd-free `runit` service or a config template instead.
+**Security properties:** signatures are checked before any file is written. Archives are extracted in a mode that refuses absolute paths, `..` components and device nodes outside an allow-list. Files are never executed during install. **Install scripts are not supported in v0**, which removes an entire class of privilege problems. If a package needs setup, it ships a config template or a poopsuite service definition instead.
 
 ### 3.2 Bootstrap chain
 
 The bootstrap is the hardest part of a from-scratch distribution, and it is where most trust decisions live.
 
 ```
-stage0  host toolchain from the archiso live environment (gcc, binutils, make, bash, glibc)
+stage0  host toolchain from the archiso live environment (gcc, binutils, make, bash)
    │   checked against recorded hashes in bootstrap/stage0/
    ▼
-stage1  temporary toolchain: binutils → gcc (pass 1) → linux-headers → glibc → gcc (pass 2)
+stage1  temporary toolchain: binutils → gcc (pass 1, no libc)
+   │      → linux-headers → musl-poop → gcc (pass 2, against musl-poop)
    │   installed into /opt/bootstrap, never into the final system
    ▼
 stage2  base userland built with stage1: coreutils, bash, util-linux, findutils, sed, grep,
    │   gawk, tar, make, m4, bison, flex, ncurses, zlib, zstd, xz, libarchive, libcurl,
-   │   sqlite, libsodium, openssl (or mbedtls), ca-certificates
+   │   sqlite, libsodium, openssl (or mbedtls), ca-certificates, dhcpcd, iwd, chrony, nftables
+   │   and the kernel (linux-poop) with its initramfs generator
    ▼
-stage3  pkgmgr built and installed into the stage2 root; package database initialised
+stage3  poopsuite and pkgmgr built and installed into the stage2 root; package database initialised
    ▼
 stage4  full self-hosting rebuild: every recipe rebuilt with pkgmgr inside the stage3 root
    │   output compared to the stage2 build for reproducibility (report, not hard-fail in v0)
@@ -326,15 +371,15 @@ repo    signed packages and index, published to testing
 
 **Trust statement:** in v0, stage0 trusts the archiso host toolchain. The seed is recorded by hash and documented, but it is not independently verified. Reducing this seed (stage0-posix, live-bootstrap style) is in §7.
 
-**Ordering** lives in `bootstrap/order.txt`, one recipe per line. A recipe may only depend on lines above it, plus the stage0 host tools. CI rejects an order that violates this.
+**Ordering** lives in `bootstrap/order.txt`, one recipe per line. A recipe may depend only on lines above it, plus the stage0 host tools. CI rejects an order that violates this.
 
 ### 3.3 Sandbox and build isolation
 
 - Builds run in a **chroot** on top of the current stage root, with a fresh `/proc`, `/dev` (minimal nodes), `/tmp` and `/var/tmp` mounts.
 - Namespaces: a new mount, PID, IPC, UTS and user namespace where the host allows it. The network namespace is **off** for the build phase.
-- Sources are fetched in a separate `fetch` phase, into a hash-addressed cache. The build phase has no network access. This means a build cannot pull in an unverified input.
+- Sources are fetched in a separate `fetch` phase, into a hash-addressed cache. The build phase has no network access. A build therefore cannot pull in an unverified input.
 - The build environment is fixed: `LANG=C`, `TZ=UTC`, `umask 022`, `SOURCE_DATE_EPOCH` from the recipe's commit time, and a fixed set of `PATH` entries.
-- Compiler hardening defaults for base recipes: `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3`, `-fPIE -pie`, `-Wl,-z,relro,-z,now`, `-Wformat -Werror=format-security`.
+- Compiler hardening defaults for base recipes: `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3`, `-fPIE -pie`, `-Wl,-z,relro,-z,now`, `-Wformat -Werror=format-security`. musl-poop's own build flags are set by its recipe; performance flags must not weaken these defaults without an ADR.
 
 ### 3.4 Kernel pipeline
 
@@ -352,14 +397,14 @@ repo    signed packages and index, published to testing
 2. Merge `kernel/config/fragments/*.config` on top with the kernel's `scripts/kconfig/merge_config.sh`.
 3. Run `make olddefconfig` and fail CI if the result differs from the committed config.
 
-**Artifacts:** `linux-poop` (kernel image, modules, EFI stub image) and `linux-poop-headers` (needed by glibc and by anything that builds against the kernel). Both come from the same build, so their versions cannot drift apart.
+**Artifacts:** `linux-poop` (kernel image, modules, EFI stub image) and `linux-poop-headers` (needed by musl-poop and by anything that builds against the kernel). Both come from the same build, so their versions cannot drift apart.
 
 ### 3.5 Initramfs
 
-We do not use dracut or mkinitcpio, because both assume the Arch or systemd ecosystem.
+We do not use dracut or mkinitcpio, because both assume an ecosystem we do not ship.
 
 - The generator builds a CPIO archive with a small **busybox** userland, the `init` script, and only the modules the image needs.
-- `init` mounts `/proc`, `/sys`, `/dev`, finds the root partition by label (`POOP_ROOT`) or by a `root=` kernel argument, mounts it, and runs `switch_root` to the real `/sbin/init`.
+- `init` mounts `/proc`, `/sys`, `/dev`, finds the root partition by label (`POOP_ROOT`) or by a `root=` kernel argument, mounts it, and runs `switch_root` to the real PID 1 (`poopsuite`).
 - Rescue: if the root mount fails, `init` drops to a busybox shell on the console and prints the reason.
 
 ### 3.6 Boot chain and Secure Boot
@@ -369,17 +414,17 @@ UEFI firmware ──▶ Limine (EFI binary) ──▶ signed kernel EFI image (l
                                            + initramfs + command line in limine.conf
 ```
 
-- **Limine** is the bootloader. It is installed to the ESP by the installer. It supports multiple kernel entries, so the previous kernel stays bootable after an upgrade.
+- **Limine** is the bootloader (Proposed, ADR-005). It is installed to the ESP by the installer. It supports multiple kernel entries, so the previous kernel stays bootable after an upgrade.
 - **Kernel EFI image:** the kernel's EFI stub is used directly. Signing is done with `sbsigntools` (`sbsign`) for Secure Boot, using keys generated on the release machine.
 - **Secure Boot** is supported with user-enrolled keys. We do not ship a Microsoft-signed shim in v0, which keeps the release process inside our own infrastructure (ADR-004).
 - The command line is generated from `/etc/poop/cmdline`, not hard-coded in the image.
 
-### 3.7 Init and services
+### 3.7 Init and services (poopsuite)
 
-- **runit** (Proposed, ADR-002) runs as PID 1. `/etc/runit/1`, `/etc/runit/2` and `/etc/runit/3` handle boot, supervision and shutdown.
-- Services live in `init/services/<name>/run` (executable). Enable a service by linking it into `/var/service`.
-- The base services are: `agetty` on tty1–tty6, `dhcpcd`, `iwd` (Wi-Fi), `chronyd`, `nftables` (oneshot ruleset load), and `sshd` if the `openssh` package is installed.
-- Logging: `runit`'s `svlogd` service per daemon, with logs in `/var/log/<service>/`. No journald.
+- **poopsuite** runs as PID 1 (ADR-002). Its repo describes it as a self-contained C boot stack with init, rc, a logger and user tools. This design relies on those parts. Their exact behaviour and service-definition format are defined by the `poopsuite` repo, and must be checked against it (Q10).
+- Service definitions live in `init/services/<name>/`. They follow the format poopsuite defines. Enabling a service is poopsuite's job, not a symlink convention of ours.
+- Base services: `agetty` on tty1–tty6, `dhcpcd`, `iwd` (Wi-Fi), `chronyd`, `nftables` (ruleset load at boot), and `sshd` if the `openssh` package is installed.
+- Logging uses poopsuite's logger, with per-service logs in `/var/log/<service>/`. No journald.
 
 ### 3.8 Networking, DNS and time
 
@@ -410,7 +455,7 @@ No snapshots in v0. Rollback is done through `pkgmgr rollback` and by keeping pr
 
 ### 3.11 Live environment (archiso)
 
-- `iso/` is a standard archiso profile. The package list is the **bootstrap host set** only: enough to run `pkgmgr`, the installer and the network tools. It contains no distribution packages.
+- `iso/` is a standard archiso profile. Its package list is the **bootstrap host set** only: enough to run `pkgmgr`, the installer and the network tools. It contains no distribution packages.
 - The live image ships `pkgmgr`, the public keyring from `keyring/`, the installer, and the bootstrap host toolchain used for stage0.
 - It autologs root into the installer on tty1. Other ttys give a shell.
 - The archiso packages are not part of the installed system. The installer does not copy them.
@@ -422,7 +467,7 @@ No snapshots in v0. Rollback is done through `pkgmgr rollback` and by keeping pr
 - **Kernel:** lockdown in integrity mode, module signing enabled, `CONFIG_STRICT_DEVMEM`, hardened defaults in the fragments.
 - **LSM:** no MAC policy in v0. Landlock and Yama are enabled in the kernel where a service opts in. AppArmor and SELinux are deferred (§7).
 - **Network:** nftables default deny inbound. SSH is off unless installed and enabled.
-- **Build:** sandbox with no network in build phase (§3.3). Hash-verified sources.
+- **Build:** sandbox with no network in build phase (§3.3). Hash-verified sources. Pinned component commits.
 
 ---
 
@@ -447,7 +492,7 @@ We are a static-artifact distributor and a bootstrap project, so the load is in 
 
 - **Builds:** horizontal. Add runners. Source cache and binary cache are shared through object storage keyed by hash.
 - **Distribution:** static files behind a CDN. Packages are immutable once published. The index changes often, so it gets a short TTL.
-- **Bootstrap parallelism:** `bootstrap/order.txt` is a DAG in disguise. Recipes with no edge between them build in parallel. The scheduler is `make -j` over generated targets.
+- **Bootstrap parallelism:** recipes with no edge between them build in parallel. The scheduler is `make -j` over generated targets.
 
 ### 4.3 Failover and redundancy
 
@@ -462,26 +507,27 @@ We are a static-artifact distributor and a bootstrap project, so the load is in 
 | Bootstrap failure on `main` | CI | Maintainers' channel, immediately |
 | Reproducibility diff in stage4 | Rebuild job | Report in CI summary; becomes a gate later |
 | Kernel upstream security release | Upstream stable feed | Triage within 24 h |
+| musl-poop / poopsuite / poop upstream changes | Pinned repos | Review at each pin bump |
 | `stable` freshness | Publish job | Warn at 14 days without a publish |
 | Origin availability | External probe | Page after 3 failed probes |
 | Boot and install test results | CI artifacts | Block promotion on failure |
 
 ### 4.5 Disaster recovery
 
-- Everything needed to rebuild is in git, plus the pinned kernel SHA and the recorded seed hashes.
+- Everything needed to rebuild is in git, plus the pinned SHAs and the recorded seed hashes. Component repos are our own, so their history is also backed up by us.
 - The offline master signing key has two custodians and an offline backup. A compromised signing subkey is revoked and replaced through `keyring/`.
 
 ---
 
 ## 5. Utility choices
 
-Each choice has the reason we made it and the condition under which we would reconsider it. Status: **Accepted** unless marked *Proposed*.
+Each choice has the reason we made it and the condition under which we would reconsider it. Status: **Accepted** unless marked *Proposed* or *Open*.
 
 | Area | Choice | Alternatives considered | Why | Revisit when |
 |------|--------|-------------------------|-----|--------------|
 | **Distribution model** | From scratch: all packages built from source by our recipes | Arch packages as base; Debian packages as base; Buildroot | Matches the maintainers' plan. No dependency on another distro's package set in the target system. | Build cost exceeds the team's capacity. Then the seed or base set is revisited (§7). |
-| **Package manager** | `pkgmgr` (working name), our own | apk, pacman, dpkg/apt, xbps, Nix | Owned end to end; small enough to audit; design fits the transaction and rollback goals. | The team cannot keep up with maintenance. Then adopt an existing manager for a later phase. |
-| **Package manager language** | C11 (*Proposed*, ADR-011) | Rust, Go, Python | Cheapest bootstrap: a C compiler is already in stage0. | A Rust bootstrap becomes affordable. |
+| **Package manager** | `pkgmgr`, in `poopware-laboratories/poop` | apk, pacman, dpkg/apt, xbps, Nix | Owned end to end; design fits the transaction and rollback goals (§3.1). | The team cannot keep up with maintenance. |
+| **Package manager language** | **Open** (Q4). Options: C11 (*ADR-011*), Rust | Go; Python | Maintainers have not decided. C is the cheapest bootstrap; Rust is safer by default. | The `poop` repo declares a language; then this row is updated. |
 | **Package format** | `.pkg.tar.zst` with `.pkginfo` and a detached Ed25519 signature | Custom binary format; `.deb`; `.apk` | tar + zstd is easy to inspect and to build; signatures are simple. | Need for delta updates or per-file dedup (§7). |
 | **Signatures** | Ed25519, minisign-compatible, via libsodium | GPG; sigstore; TUF | Small verifier, no keyring daemon, easy to audit. | Need for supply-chain attestations (§7). |
 | **Local database** | SQLite | Flat files (pacman-style); Berkeley DB | Transactions and queries built in; one file. | Database growth or performance issues. |
@@ -489,11 +535,11 @@ Each choice has the reason we made it and the condition under which we would rec
 | **Recipe format** | `recipe.toml` metadata + `build.sh` | Lua; YAML; Python recipes | Declarative metadata that tools can read without running code; shell is the lingua franca for build steps. | Recipes need logic that shell cannot express cleanly. |
 | **Build sandbox** | chroot + namespaces, no network in build phase | Containers (Docker); bubblewrap-only; VM per build | No daemon needed; the stage root is already a tree. | A build needs isolation that namespaces cannot give. |
 | **Bootstrap seed (stage0)** | archiso live environment's host toolchain, hash-recorded | Full seed from source (stage0-posix); cross toolchain from another distro | Available immediately. Matches the chosen bootstrap path (archiso). | A reduced seed becomes a requirement (§7). |
-| **C library** | **glibc** (*Proposed*, ADR-013) | musl | Broadest binary compatibility for third-party software. | Want a smaller static-first system; then musl for a separate variant. |
+| **C library** | **musl-poop**, our musl fork, focused on performance (ADR-013, Accepted) | glibc; upstream musl unchanged | Maintainers' decision. Small, clean, performance-focused. | Software we need requires glibc behaviour; then a compatibility layer is considered (§7). |
+| **Init system / PID 1** | **poopsuite**, our C boot stack (ADR-002, Accepted) | runit; s6 / s6-rc; OpenRC; systemd | Maintainers' decision. Keeps the whole boot path in our control. | poopsuite cannot meet a requirement in F10 or §3.7. |
 | **Core userland** | GNU coreutils, util-linux, findutils, sed, grep, gawk, tar, make, bash | BusyBox everywhere; toybox | Script compatibility and familiarity. BusyBox is used only in the initramfs and rescue shell. | Image size requirement becomes binding. |
 | **Shell (login)** | bash | ksh/mksh, dash, fish | Default for scripts and users. | — |
-| **Init system** | **runit** (*Proposed*, ADR-002) | s6 / s6-rc; OpenRC; systemd; a custom init | Small, simple to bootstrap, supervision built in, no logind-style dependency. | Need for stronger dependency management (switch to s6-rc). |
-| **Login / TTY** | agetty + login(1) on tty1–tty6 | getty variants, greetd | Standard, small. | — |
+| **Login / TTY** | agetty + login(1) on tty1–tty6, supervised by poopsuite | getty variants; greetd | Standard, small. | — |
 | **Privilege escalation** | **doas** (ADR-012) | sudo; su only | Small, auditable, sufficient for a single-admin TTY system. | Users need fine-grained sudo policy. |
 | **Bootloader** | **Limine** (*Proposed*, ADR-005) | GRUB; systemd-boot; syslinux | Small, UEFI and BIOS capable, multi-kernel entries, no systemd dependency. | Limine's Secure Boot story or maintenance changes. |
 | **Kernel image signing** | kernel EFI stub, signed with `sbsigntools`, user-enrolled keys | UKI via ukify (needs systemd); shim | No systemd, no Microsoft signing. | Users need Secure Boot without enrolment (§7). |
@@ -511,10 +557,10 @@ Each choice has the reason we made it and the condition under which we would rec
 | **Editions** | One: `tty` | minimal + desktop | Maintainers' decision. | — |
 | **CI** | GitHub Actions for lint and unit tests; **self-hosted runner** for bootstrap, kernel and ISO | Hosted only; Buildbot | Bootstrap needs root, large disk and long jobs. | Build volume outgrows one runner. |
 | **Build orchestration** | `make` + bash scripts (`shellcheck`-clean) | `just`; Python; Bazel | Available everywhere. Bootstrap order is a plain file. | Target count becomes hard to read. |
-| **Testing** | Unit tests for `pkgmgr` (C test runner); scenario tests in a stage root; QEMU+OVMF boot and install tests | Manual testing only | Automatable and repeatable. | Hardware-in-the-loop tests (§7). |
+| **Testing** | `pkgmgr` unit tests in the `poop` repo; scenario tests in a stage root here; QEMU+OVMF boot and install tests | Manual testing only | Automatable and repeatable. | Hardware-in-the-loop tests (§7). |
 | **Hosting** | Object storage origin behind a CDN (*Proposed*, ADR-010) | GitHub Releases; self-hosted server | Egress-heavy workload is cheap there. The maintainers' answer did not cover hosting; see §8 Q5. | Egress costs or provider limits change. |
 | **Commit / PR conventions** | Conventional Commits; PR template | Free-form | Machine-readable changelog. | — |
-| **Licensing** | Our code and recipes under **BSD-3-Clause** (maintainer decision). Upstream components keep their own licenses; the kernel stays GPL-2.0-only. BSD-3-Clause is GPL-compatible. | MIT; GPL-2.0 for everything; one license for all | Maintainers' decision. Short, widely understood permissive licence that is compatible with the GPL kernel. | Legal review finds an incompatibility, or a contributor base needs a different licence. |
+| **Licensing** | Our code, recipes and docs under **BSD-3-Clause** (ADR-014, Accepted) | MIT; GPL-2.0 for everything | Maintainers' decision. BSD-3-Clause is GPL-compatible, so it fits with the GPL kernel. | Legal review finds an incompatibility. |
 | **Branding** | Own name, logo and text in `branding/`. No third-party marks. | Keeping upstream branding | Avoids trademark confusion. | — |
 
 ---
@@ -526,19 +572,19 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 ### ADR-001 — From-scratch base with our own recipes (Accepted, maintainer decision)
 
 - **Options:** from-scratch; Arch packages as base; Debian packages as base; Buildroot.
-- **Chosen:** from scratch. Every package is built from upstream source by our recipes.
+- **Chosen:** from scratch. Every package is built from upstream source by our recipes or pinned to our own repos.
 - **Gains:** full control of the system, no dependency on another distro's package set, a coherent design for the package manager.
 - **Costs:** the bootstrap is large. Security updates for everything we ship fall on us. Time to a usable system is the longest of all options.
 
-### ADR-002 — runit as init (*Proposed*)
+### ADR-002 — poopsuite as PID 1 and supervisor (Accepted, maintainer decision)
 
-- **Gains:** small, simple to build, supervision built in, a clear service-directory model.
-- **Costs:** less dependency management than systemd. Some upstream software expects systemd units, and we will write our own service files for it.
+- **Gains:** the whole boot path, from PID 1 to the logger, is one project under our control.
+- **Costs:** we carry the bugs and the security work for init. Its service-definition format and feature set must be verified against the `poopsuite` repo before the base services in §3.7 are written (Q10). Tools that expect systemd or runit service formats need adapters.
 
-### ADR-003 — Package manager is ours (Accepted, maintainer decision)
+### ADR-003 — Package manager is ours, in its own repo (Accepted, maintainer decision)
 
-- **Gains:** design fits our transaction and rollback goals.
-- **Costs:** we own all the bugs. We need a test suite and scenario tests from day one.
+- **Gains:** design fits our transaction and rollback goals. The repo pin here keeps the integrated system reproducible.
+- **Costs:** we own all the bugs. The `poop` repo needs its own unit and fuzz tests, and this repo needs scenario tests from day one.
 
 ### ADR-004 — No Microsoft-signed shim in v0 (*Proposed*)
 
@@ -570,20 +616,25 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 - **Gains:** bootstrap and `mkarchiso` need root, large disk and long jobs.
 - **Costs:** one machine is a single point of failure for releases. Mitigation: a second runner (§4.2).
 
-### ADR-010 — Object storage origin behind a CDN (*Proposed*)
+### ADR-010 — Object storage origin behind a CDN for artifacts (*Proposed*)
 
 - **Gains:** egress-heavy traffic is cheap, cacheable, and needs no servers.
 - **Costs:** a vendor dependency, and an egress bill to watch. Two origins for failover (§4.3).
 
-### ADR-011 — C11 for `pkgmgr` (*Proposed*)
+### ADR-011 — Language for `pkgmgr` (**Open**, Q4)
 
-- **Gains:** a C compiler is already needed by stage0, so the bootstrap does not grow a new language.
-- **Costs:** manual memory safety. We mitigate with a small codebase, fuzzing of the archive parser, and `-fsanitize` builds in CI.
+- **Options:** C11 (cheapest bootstrap, manual memory safety; mitigated by fuzzing and sanitizers) or Rust (memory-safe by default; large bootstrap).
+- **Status:** not decided. The `poop` repo will record the decision in its own ADR, and this repo will update §5 when it does.
 
 ### ADR-012 — doas for privilege escalation (Accepted)
 
 - **Gains:** small, auditable, fits a single-admin system.
 - **Costs:** less policy depth than sudo. Users who need fine-grained rules will have to ask for them.
+
+### ADR-013 — musl-poop as C library (Accepted, maintainer decision)
+
+- **Gains:** a small, clean libc we control, with a performance focus that matches our goals.
+- **Costs:** third-party software that depends on glibc behaviour is not supported in the base. We maintain a downstream fork, so upstream musl changes must be reviewed and merged on our schedule. Performance claims about musl-poop require benchmarks (`AGENTS.md` §4.5).
 
 ### ADR-014 — BSD-3-Clause for project code (Accepted, maintainer decision)
 
@@ -592,11 +643,6 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 - **Gains:** a short permissive licence that contributors and downstream projects already know. It is GPL-compatible, so the GPL-2.0-only kernel and our code can be combined. The non-endorsement clause keeps the project name from being used to promote derived works.
 - **Costs:** no copyleft, so downstream projects may ship modified versions without publishing their changes. Every new source file needs the SPDX header (CONTRIBUTING §17).
 
-### ADR-013 — glibc as C library (*Proposed*)
-
-- **Gains:** broadest compatibility with existing software; fewer porting patches.
-- **Costs:** larger and slower to bootstrap than musl. Static-only systems are not the target.
-
 ---
 
 ## 7. Revisit as the system grows
@@ -604,7 +650,9 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 | Topic | Trigger | Likely direction |
 |-------|---------|------------------|
 | Bootstrap seed | Trust review requires an independent seed | stage0-posix or live-bootstrap style seed |
-| Desktop edition | Maintainers plan a graphical edition | Add `desktop` edition: Wayland compositor, PipeWire, a chosen DE (new ADR) |
+| glibc compatibility | Required third-party software needs glibc | Compatibility layer, or a glibc-based variant, through a new ADR |
+| musl-poop upstream sync | Upstream musl releases security or correctness fixes | Sync policy in the musl-poop repo, mirrored in a pin-bump checklist here |
+| Desktop edition | Maintainers plan a graphical edition | Add `desktop` edition: Wayland compositor, audio, a chosen DE (new ADR) |
 | Containers | Users need containers in the base | Add Podman or a lighter runtime as an optional package |
 | Package manager solver | Dependency graphs grow beyond simple walks | SAT-based solver, or a PubGrub-style resolver |
 | Snapshots and boot-menu rollback | Users roll back bad upgrades often | btrfs or ZFS root, snapshot entries in Limine |
@@ -612,7 +660,7 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 | Secure Boot UX | Enrolment becomes a support burden | Shim signing process, or guided enrolment in the installer |
 | Supply-chain hardening | Repo grows or user base grows | TUF or sigstore attestations; reproducibility as a hard gate |
 | Architectures | Demand for aarch64 or RISC-V | New bootstrap stage per architecture; cross toolchain in stage1 |
-| Init alternatives | Users ask for s6-rc or a different supervisor | Replace runit only through an ADR and a migration plan |
+| Init changes | poopsuite cannot meet a requirement | Replace poopsuite only through an ADR and a migration plan |
 | Kernel patch volume | Fork carries many non-upstream patches | Dedicated release branches and a patch-queue tool |
 | Legacy BIOS | Target users need it | Limine BIOS path in the installer |
 | Hosting | Egress bill grows, or the provider changes terms | Move origin, add a mirror network, or add torrent seeding |
@@ -625,15 +673,15 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 
 These need maintainer decisions. Each blocks a specific milestone (§9).
 
-- **Q1 — Name of the package manager.** It is `pkgmgr` in this document, as a working name. Pick the real name before the first binary is published, because it appears in the ISO, the database path and the docs.
-- **Q2 — Init:** runit (recommended, ADR-002) or s6 / s6-rc.
-- **Q3 — C library:** glibc (recommended, ADR-013) or musl.
-- **Q4 — Package manager language:** C11 (recommended, ADR-011) or Rust, accepting a heavier bootstrap.
-- **Q5 — Hosting:** the answer about "bootstrap into a system, user uses archiso to bootstrap the distro" was read as describing the install path, not repo hosting. Repo hosting is still open. Object storage + CDN (recommended, ADR-010), or another origin.
-- **Q6 — Bootloader:** Limine (recommended, ADR-005), or GRUB for a larger support base.
+- **Q1 — Binary name of the package manager.** The repo is `poop`, and the design uses `pkgmgr` as a working name. Confirm the binary name, the database path (`/var/lib/poopkg`) and the cache path before the first package is published, because they appear in the ISO, the database path and the docs.
+- **Q4 — Package manager language:** C11 (ADR-011) or Rust, accepting a heavier bootstrap. This is the open decision in the `poop` repo.
+- **Q5 — Hosting:** the answer "bootstrap into a system, user uses archiso to bootstrap the distro" was read as describing the install path, not repo hosting. Repo hosting is still open. Object storage + CDN (ADR-010), or another origin.
+- **Q6 — Bootloader:** Limine (ADR-005) or GRUB for a larger support base.
 - **Q7 — Signing custody:** who holds the offline master key, and how many custodians are needed to sign a keyring change.
 - **Q8 — Name and trademark:** confirm "Poop Linux" and its branding are cleared for public use before the first public ISO.
 - **Q9 — Kernel features for v1:** which fragments and patches go in (hardening, scheduler changes, LTO). Needs a benchmark plan first.
+- **Q10 — poopsuite fit:** check the `poopsuite` repo for service-definition format, supervision semantics (restart policy, dependency ordering), logger behaviour and user tools. §3.7 and the base services depend on the answer.
+- **Q11 — musl-poop scope:** which performance changes go in, how they are benchmarked (§4.5 of `AGENTS.md`), and how upstream musl changes are synced.
 
 ---
 
@@ -642,9 +690,9 @@ These need maintainer decisions. Each blocks a specific milestone (§9).
 | Phase | Deliverable | Exit criteria |
 |-------|-------------|---------------|
 | 0 — Foundations | Repo skeleton, `Makefile`, lint CI, this design, `.gitignore`, `bootstrap/order.txt` (empty) | `make lint` passes on `main`; CI green |
-| 1 — pkgmgr MVP | `pkgmgr` with `sync`, `install`, `remove`, signature checks, SQLite database, one-transaction commit | Scenario tests pass in a throwaway stage root; fuzzed archive parser has no crashes in a 1-hour run |
-| 2 — Stage0 and stage1 | `bootstrap/stage1` builds binutils, gcc (pass 1 and 2), linux headers, glibc | Stage1 toolchain compiles and runs a hello-world with `-fstack-protector-strong` |
-| 3 — Stage2 base | Base userland (§3.2 stage2) and `linux-poop` with the initramfs generator | Base builds in the sandbox; kernel boots to a busybox shell in QEMU |
+| 1 — pkgmgr MVP (in the `poop` repo) | `pkgmgr` with `sync`, `install`, `remove`, signature checks, SQLite database, one-transaction commit. Language decided (Q4). | Scenario tests pass in a throwaway stage root; fuzzed archive parser has no crashes in a 1-hour run |
+| 2 — Stage0 and stage1 | `bootstrap/stage1` builds binutils, gcc (pass 1 and 2), linux headers, musl-poop | Stage1 toolchain compiles and runs a hello-world with `-fstack-protector-strong`, linked against musl-poop |
+| 3 — Stage2 base | Base userland (§3.2 stage2), `linux-poop` with the initramfs generator, poopsuite as PID 1 (Q10 closed) | Base builds in the sandbox; kernel boots to a busybox shell and poopsuite starts a service in QEMU |
 | 4 — Self-hosting | `pkgmgr` builds itself; full stage4 rebuild; reproducibility report | Stage4 completes; reproducibility report published in CI |
 | 5 — Installer and live ISO | `iso/` archiso profile, TTY installer, Limine, signed kernel | ISO boots in QEMU/OVMF; installer completes; installed system boots to login |
 | 6 — Release | `stable` channel, origins, changelog, first public `tty` ISO | §4.3 and §4.4 wired up; Q5, Q7, Q8 closed |
@@ -655,7 +703,9 @@ These need maintainer decisions. Each blocks a specific milestone (§9).
 
 - **Stage0 / stage1 / stage2:** bootstrap levels. Stage0 is the host toolchain. Stage1 is a temporary toolchain. Stage2 is the base built with stage1.
 - **Recipe:** the build description for one package (`recipe.toml` and `build.sh`).
-- **pkgmgr:** our package manager (working name, Q1).
+- **pkgmgr:** our package manager (working name, Q1), developed in `poopware-laboratories/poop`.
+- **poopsuite:** our C boot stack, used as PID 1 and supervisor.
+- **musl-poop:** our downstream fork of musl, used as the C library.
 - **Transaction:** one install, remove or upgrade run. It commits or rolls back as a unit.
 - **archiso:** Arch's tool for building live ISOs. Used here only for the live bootstrap environment.
 - **UEFI stub:** the EFI-loadable entry in the Linux kernel image, which lets the firmware boot the kernel directly.

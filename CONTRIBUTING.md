@@ -1,6 +1,6 @@
 # Contributing to Poop Linux
 
-Thanks for helping. This document explains how to set up a build environment, how to propose a change, what we check before merge, and how releases happen. The design is in [`ARCHITECTURE.md`](ARCHITECTURE.md). If you are an AI agent, read [`AGENTS.md`](AGENTS.md) too. Its hard rules apply to everyone.
+Thanks for helping. This document explains how to set up a build environment, how to propose a change, what we check before merge, and how releases happen. The design is in [`ARCHITECTURE.md`](ARCHITECTURE.md). If you are an AI agent, read [`AGENTS.md`](AGENTS.md) too. Its hard rules apply to everyone. Security reports go through [`SECURITY.md`](SECURITY.md), never through public issues.
 
 ---
 
@@ -12,7 +12,7 @@ Thanks for helping. This document explains how to set up a build environment, ho
 4. [Setting up a development environment](#4-setting-up-a-development-environment)
 5. [The kernel fork](#5-the-kernel-fork)
 6. [Recipes](#6-recipes)
-7. [The package manager (`pkgmgr`)](#7-the-package-manager-pkgmgr)
+7. [Component repositories](#7-component-repositories)
 8. [Branches, commits and pull requests](#8-branches-commits-and-pull-requests)
 9. [Review](#9-review)
 10. [Testing matrix](#10-testing-matrix)
@@ -29,26 +29,25 @@ Thanks for helping. This document explains how to set up a build environment, ho
 
 ## 1. Code of conduct
 
-Be direct, be kind, and assume good faith. Criticise code and designs, not people. Maintainers may remove comments or contributors who repeatedly ignore this.
-
-A full Code of Conduct (Contributor Covenant) is a Phase 0 deliverable. Until it lands, this section applies.
+Everyone taking part in this project follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report conduct concerns privately to a maintainer listed in [`MAINTAINERS.md`](MAINTAINERS.md).
 
 ## 2. What we accept
 
 | Welcome | Please discuss first |
 |---------|----------------------|
-| Bug fixes in `pkgmgr`, recipes, installer, scripts | New recipe stages or changes to `bootstrap/order.txt` |
+| Bug fixes in recipes, installer, scripts, initramfs | New recipe stages or changes to `bootstrap/order.txt` |
 | Documentation fixes and clarifications | Changes to kernel config defaults |
 | Kernel config fragments with a clear reason | Kernel patches that are not in upstream |
 | New recipes for software that fits the design | Changes to `keyring/`, `repo/`, signing or CI secrets |
 | Tests, fuzz targets and lint checks | Changes that alter a contract in `ARCHITECTURE.md` §2.4 |
 | Hardening patches for base packages | Install-time scripts, new edition, new architecture |
+| Bug reports for `pkgmgr`, `poopsuite` or `musl-poop` (file them in those repos) | Feature work in `pkgmgr`, `poopsuite` or `musl-poop` before a design issue exists |
 
 If it is in the second column, open an issue or a draft PR first. We would rather talk about a 30-line plan than review a 1,000-line surprise.
 
 ## 3. Before you start
 
-1. Search open issues and PRs for the same change.
+1. Search open issues and PRs for the same change, in this repo and in the component repos.
 2. Read the parts of `ARCHITECTURE.md` that cover your area. §3 explains each subsystem, §5 lists the utility choices and §6 is the ADR log.
 3. For anything in the second column above, open an issue with: the problem, the proposed change, the alternatives you considered, and what you would revisit later.
 
@@ -56,8 +55,8 @@ If it is in the second column, open an issue or a draft PR first. We would rathe
 
 ### 4.1 Requirements
 
-- A **Linux host** with `git`, a C11 compiler, `make`, `shellcheck`, `shfmt`, `yamllint`, `editorconfig-checker`, `python3` (for the repo's lint scripts), and `qemu-system-x86` with `edk2-ovmf` for boot tests.
-- For bootstrap builds and ISO builds: root (or a privileged container), loop devices, about **80 GiB** of free disk, and `archiso` for `mkarchiso`.
+- A **Linux host** with `git`, a C compiler, `make`, `shellcheck`, `shfmt`, `yamllint`, `editorconfig-checker`, `python3` (for the repo's lint scripts), and `qemu-system-x86` with `edk2-ovmf` for boot tests.
+- For bootstrap and ISO builds: root (or a privileged container), loop devices, about **80 GiB** of free disk, and `archiso` for `mkarchiso`.
 - KVM is strongly recommended for boot tests. Without it, boot tests run very slowly.
 
 ### 4.2 First steps
@@ -66,7 +65,6 @@ If it is in the second column, open an issue or a draft PR first. We would rathe
 git clone git@github.com:poopware-laboratories/pooplinux.git
 cd pooplinux
 make lint                 # start here; no build needed
-make test-pkgmgr          # once pkgmgr/ exists
 ```
 
 Until a `make` target exists for your area, run the underlying tool directly and say so in your PR.
@@ -101,13 +99,13 @@ A patch belongs in the **fork**, not here. Open the change against `poopware-lab
 
 ## 6. Recipes
 
-A recipe is one package's build description. A package is built from upstream source; nothing is taken from another distribution.
+A recipe is one package's build description. Most packages are built from upstream source. Our own components are pinned by commit (§7).
 
 ### 6.1 Layout
 
 ```
 recipes/<name>/
-├── recipe.toml     metadata, sources with sha256, dependencies, stage
+├── recipe.toml     metadata, sources with sha256 or commit SHA, dependencies, stage
 ├── build.sh        prepare / build / check / install functions
 └── files/          optional: templates or patches the build uses (hash-listed in recipe.toml)
 ```
@@ -116,11 +114,11 @@ The contract for `recipe.toml` and `build.sh` is in `ARCHITECTURE.md` §2.4.
 
 ### 6.2 Rules
 
-- Every `[[source]]` has a `sha256`. Git sources are pinned by full commit SHA, never by branch or tag name.
+- Every archive `[[source]]` has a `sha256`. Git sources are pinned by full commit SHA, never by branch or tag name.
 - `build.sh` defines only `prepare`, `build`, `check` (optional) and `install`. `install` writes only into `$DESTDIR`.
 - Builds run in the sandbox with **no network**. Anything the build needs must be declared in `recipe.toml` and fetched in the fetch phase.
 - Declare every build and runtime dependency. Missing dependencies fail the sandbox build, so they do not go unnoticed.
-- Do not ship install-time scripts. If the package needs setup, ship a template under `etc/` or a service directory under `init/services/`.
+- Do not ship install-time scripts. If the package needs setup, ship a template under `etc/` or a poopsuite service definition under `init/services/`.
 - Use the base hardening flags defined in `ARCHITECTURE.md` §3.3 unless the recipe documents why it cannot.
 - `license` in `recipe.toml` must match the upstream license. Use an SPDX identifier.
 
@@ -136,27 +134,37 @@ The contract for `recipe.toml` and `build.sh` is in `ARCHITECTURE.md` §2.4.
 
 Stage changes can invalidate everything above them. A PR that moves a recipe between stages, or changes a stage1 toolchain recipe, must say which later recipes need a rebuild, and must run the stage rebuild in CI before review.
 
-## 7. The package manager (`pkgmgr`)
+## 7. Component repositories
 
-`pkgmgr` lives in `pkgmgr/`, written in C11. It is the most security-sensitive code in the project, because it reads untrusted archives and indexes and writes to the root filesystem.
+Three core components live in their own repositories and are pinned here by commit SHA, in their recipes:
 
-### 7.1 Rules for `pkgmgr` changes
+| Component | Repo | Recipe that pins it | What it is |
+|-----------|------|---------------------|------------|
+| Package manager | `poopware-laboratories/poop` | `recipes/poop/` | `pkgmgr`: installs, upgrades, verifies, rolls back |
+| Init and boot stack | `poopware-laboratories/poopsuite` | `recipes/poopsuite/` | PID 1, rc, logger, user tools |
+| C library | `poopware-laboratories/musl-poop` | `recipes/musl-poop/` | Our musl fork, focused on performance |
 
-- Build with `-std=c11 -Wall -Wextra -Werror`. CI also builds with AddressSanitizer and UndefinedBehaviorSanitizer.
-- No new runtime dependency without an ADR. The current set is libcurl, libarchive, libzstd, SQLite and libsodium (see `ARCHITECTURE.md` §3.1).
-- Any change to archive parsing, index parsing or path handling needs a unit test, and a fuzz target update where applicable.
-- Signature verification must run **before** any file is written. A change that moves or weakens that order is rejected.
-- Never add a flag that installs unsigned packages in a release configuration.
+### 7.1 Where to make a change
 
-### 7.2 Package file format
+- **Code changes go to the component repo**, in a branch and PR there, following that repo's own rules. Do not copy component code into this repo.
+- **Pin bumps happen here.** A bump PR changes `commit` in the recipe, states the old and new SHA, and runs the integration tests in §10.
+- **Language of `pkgmgr` is open** (ARCHITECTURE Q4). Until the `poop` repo declares one, do not add build tooling for it to this repo.
 
-Changes to `.pkginfo` or the archive layout are format changes. They need an ADR, a version field bump, and a compatibility note in `pkgmgr/README.md`.
+### 7.2 Rules for component changes
+
+- **`pkgmgr`:** signature verification must run before any file is written. A change that moves or weakens that order is rejected. Archive and index parsers take untrusted input, so they need tests and fuzz coverage in the `poop` repo. Never add a flag that installs unsigned packages in a release configuration.
+- **`poopsuite`:** PID 1 runs as root, so every change to process supervision, mounts or signal handling needs a review by a sensitive-area owner (`AGENTS.md` §7).
+- **`musl-poop`:** performance claims need benchmarks following §12. Changes that alter security-relevant behaviour (hardening, memory allocation, locale or DNS code paths) need a security review. Upstream musl changes are merged on the schedule in ARCHITECTURE Q11.
+
+### 7.3 Package file format
+
+Changes to the `.pkginfo` format or the archive layout are format changes. They need an ADR in `poop`, a version field bump, and a compatibility note in the `poop` repo's documentation.
 
 ## 8. Branches, commits and pull requests
 
 ### 8.1 Branches
 
-- Branch names: `<type>/<short-description>`, for example `fix/pkgmgr-index-rollback` or `feat/recipe-linux-headers`.
+- Branch names: `<type>/<short-description>`, for example `fix/pkg-index-rollback` or `feat/recipe-linux-headers`.
 - Work from `main`. Rebase on `main` before opening the PR, or merge `main` in if a rebase would be painful for reviewers.
 - Do not push to `main`. Do not force-push a branch that someone else reviewed without saying so in the PR.
 
@@ -174,24 +182,25 @@ Refs: #123
 ```
 
 - **types:** `feat`, `fix`, `docs`, `build`, `ci`, `refactor`, `test`, `chore`, `perf`, `security`, `revert`
-- **scopes:** `pkgmgr`, `kernel`, `recipe`, `bootstrap`, `sandbox`, `initramfs`, `installer`, `iso`, `repo`, `keyring`, `ci`, `docs`, or a recipe name
+- **scopes:** `kernel`, `recipe`, `bootstrap`, `sandbox`, `initramfs`, `installer`, `iso`, `repo`, `keyring`, `ci`, `docs`, `pin`, or a recipe name
 - Use a body for anything non-trivial. Explain *why*, not just *what*.
 - Sign your commits if you can (`git commit -S`). Signed commits are recommended for contributors and required for maintainers' commits to `main`.
 
 ### 8.3 Pull requests
 
 - Open PRs against `main`. Mark them **draft** until CI is green and the description is complete.
-- Use the template at `.github/PULL_REQUEST_TEMPLATE.md` (to be created in Phase 0). It asks for:
+- Fill in the template at `.github/PULL_REQUEST_TEMPLATE.md`. It asks for:
   - what changed and why
   - which checks you ran, with results
   - whether the change touches a sensitive area (`AGENTS.md` §7)
   - whether it changes a contract or decision in `ARCHITECTURE.md`
 - Keep PRs small. Target under 400 changed lines where you can. Split large changes into a sequence of PRs.
 - A PR that changes behaviour must say how you verified it.
+- Do not describe an unfixed vulnerability in a PR. Report it through [`SECURITY.md`](SECURITY.md).
 
 ## 9. Review
 
-- Every PR needs **one approving review** from a maintainer. PRs touching a sensitive area need **two**, one of whom owns that area.
+- Every PR needs **one approving review** from a maintainer. PRs touching a sensitive area need **two**, one of whom owns that area (`.github/CODEOWNERS`, `MAINTAINERS.md`).
 - Reviewers look at correctness first, then reproducibility, then security, then style.
 - Authors respond to every comment: fix it, or explain why not, and resolve the thread only after the reviewer agrees.
 - If a review takes more than 7 days with no reply, ping the maintainers' channel.
@@ -202,8 +211,8 @@ Refs: #123
 | Change | Required checks | Where they run |
 |--------|-----------------|----------------|
 | Any PR | `make lint`, commit-message check, PR template check, SPDX header check | Hosted CI |
-| `pkgmgr` change | Unit tests, `-Werror` build, ASan/UBSan run, fuzz smoke test for parsers | Hosted CI |
 | Recipe change | `recipe-check`, sandbox build, install of the result into a stage root | Self-hosted runner |
+| Pin bump (`poop`, `poopsuite`, `musl-poop`) | Scenario tests in `tests/pkgmgr/`, stage1 hello-world, boot test if the change touches PID 1 or the C library; benchmarks if the bump claims a speed or size gain | Self-hosted runner |
 | Bootstrap order or stage change | Stage rebuild for affected stages, reproducibility report | Self-hosted runner |
 | Kernel change | Drift check, kernel build, QEMU boot to busybox shell | Self-hosted runner, KVM |
 | Installer or `iso/` change | ISO build, boot test, install test in QEMU | Self-hosted runner, KVM |
@@ -216,14 +225,15 @@ Refs: #123
 
 Significant decisions get an ADR in `docs/decisions/`.
 
-- **When to write one:** anything that changes a contract in `ARCHITECTURE.md` §2.4, moves a *Proposed* decision to *Accepted* (or back), adds a runtime dependency to `pkgmgr`, changes the package or index format, or reverses an earlier ADR.
+- **When to write one:** anything that changes a contract in `ARCHITECTURE.md` §2.4, moves a *Proposed* or *Open* decision to *Accepted* (or back), adds a runtime dependency to a component, changes the package or index format, or reverses an earlier ADR.
+- **Component-level decisions** (for example the `pkgmgr` language, Q4) are recorded in the component repo's own ADR log, and this repo's `ARCHITECTURE.md` is updated to match.
 - **How:** copy the next number, `NNNN-short-title.md`. Use these sections: *Status*, *Context*, *Decision*, *Consequences*, *Alternatives*.
-- **Status values:** `Proposed`, `Accepted`, `Superseded by NNNN`, `Rejected`.
+- **Status values:** `Proposed`, `Open`, `Accepted`, `Superseded by NNNN`, `Rejected`.
 - **Update `ARCHITECTURE.md`** in the same PR, so the design doc and the ADR do not disagree.
 
 ## 12. Benchmarks and performance claims
 
-If your PR says something is faster, smaller, or lighter, it needs measurements:
+If your PR or pin bump says something is faster, smaller, or lighter, it needs measurements:
 
 - Measure before and after on the same machine, with the same inputs.
 - Run at least 5 repetitions and report the **median** and the **min–max** range.
@@ -233,17 +243,11 @@ If your PR says something is faster, smaller, or lighter, it needs measurements:
 
 ## 13. Security issues
 
-**Do not open a public issue for a security vulnerability.**
+**Do not open a public issue, PR or discussion for a security vulnerability.**
 
-Report it privately through GitHub's private vulnerability reporting on `poopware-laboratories/pooplinux`, or by email to the security contact listed in `SECURITY.md` (to be created in Phase 0). Include:
+Follow [`SECURITY.md`](SECURITY.md). Use GitHub's private vulnerability reporting on `poopware-laboratories/pooplinux`. It sets out what to include, the response targets (acknowledgement within 3 business days, fixes for critical issues within 72 hours of confirmation), scope, and how advisories are published.
 
-- the affected component and version
-- steps to reproduce, or a proof of concept
-- your assessment of impact
-
-We acknowledge reports within **3 business days** and aim to ship a fix within **72 hours** for critical issues in shipped kernels, `pkgmgr`, or signing infrastructure. We credit reporters who want credit.
-
-Kernel vulnerabilities that exist upstream should also be reported to the upstream kernel security team. Tell us in your report.
+Vulnerabilities that exist upstream should also be reported to the upstream project, for the Linux kernel to the upstream kernel security team. Tell us in your report.
 
 ## 14. Releases
 
@@ -257,7 +261,7 @@ Releases follow the channels in `ARCHITECTURE.md` §2.4.
 3. **ISOs:** built from `stable` only. Each ISO release gets a changelog entry and SHA-256 checksums, signed with the release key.
 4. **Rollback:** a bad release is rolled back by re-pointing `stable` at the previous signed index. Announce the rollback in the changelog and in the release notes.
 
-A release manager is named for each release in the changelog.
+A release manager is named for each release in `CHANGELOG.md`. Security entries go under the **Security** heading of the release they ship in.
 
 ## 15. Signing keys and custody
 
@@ -265,7 +269,7 @@ A release manager is named for each release in the changelog.
 - **Signing subkey:** lives in CI secrets. It signs packages and repo indexes. It expires and is rotated on a schedule (every 12 months, or immediately if compromised).
 - **Secure Boot keys:** generated on the release machine. The private keys never leave that machine. Only the public keys ship, in `keyring/` and on the ISO.
 - **Rotation:** announced in advance, with the new public key in `keyring/` for at least one release before the old key is removed.
-- **Compromise:** report it using §13. We revoke the key, publish a new keyring, and publish an advisory. Users who installed packages signed by the compromised key are told how to verify their systems.
+- **Compromise:** report it using [`SECURITY.md`](SECURITY.md) and mark the report "signing key". We revoke the key, publish a new keyring, and publish an advisory. Users who installed packages signed by the compromised key are told how to verify their systems.
 
 Never commit a private key, a token, or a secret, even to a branch you plan to delete.
 
@@ -289,11 +293,10 @@ AI tools are welcome as long as the human who opens the PR has read and understo
 
   Generated files and vendored third-party files keep the license they came with.
 - **Kernel source (`poopware-laboratories/linux`):** GPL-2.0-only, as upstream. BSD-3-Clause is GPL-compatible, so our BSD-licensed code and the kernel can be combined.
+- **Component repos** (`poop`, `poopsuite`, `musl-poop`): each repo states its own license. Check it before contributing. `musl-poop` is a fork of musl and keeps musl's license terms for the parts it inherits.
 - **Upstream software built by recipes:** each keeps its upstream license. The `license` field in `recipe.toml` must match it.
 - By contributing, you agree that your contribution is licensed under BSD-3-Clause, unless the file you change states another license that applies to it.
 
 ## 18. Maintainers
 
-Maintainers are listed in `MAINTAINERS.md` (to be created in Phase 0), along with their area of ownership. For a sensitive area, `CODEOWNERS` will name the owners once the file exists.
-
-Until those files exist, open an issue and tag the maintainers who set up the repo.
+Maintainers, the areas they own and how to reach them are listed in [`MAINTAINERS.md`](MAINTAINERS.md). Sensitive areas are mapped to owners in `.github/CODEOWNERS`, which stays commented out until the handles are filled in.

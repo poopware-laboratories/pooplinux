@@ -26,16 +26,17 @@ Status: early foundations. The kernel fork is currently identical to upstream. M
 | `AGENTS.md` / `CLAUDE.md` | Agent instructions | `CLAUDE.md` imports this file |
 | `CONTRIBUTING.md` | Human contributor workflow | Source of truth for *how humans work here* |
 | `LICENSE` | BSD-3-Clause | Applies to our code, recipes and docs |
-| `CHANGELOG.md` | Release notes | Keep a Changelog format (to be created) |
+| `CHANGELOG.md` | Release notes | Keep a Changelog format |
 | `Makefile` | The only supported build entry point | Targets in §5 |
 | `kernel/` | `source.env`, kernel config fragments, `build.sh` | `source.env` is the only place the kernel SHA lives |
-| `pkgmgr/` | Our package manager, C11, with its tests | Own README documents the `.pkginfo` format |
+| `recipes/poop/`, `recipes/poopsuite/`, `recipes/musl-poop/` | Pins to our component repos (package manager, init, libc) | Pins are full SHAs. The code lives in the component repos, not here. |
+| `SECURITY.md` | Vulnerability reporting policy | Read before touching anything in `keyring/`, `repo/` or `.github/` |
 | `recipes/` | One directory per package: `recipe.toml` + `build.sh` | The whole system is built from here |
 | `bootstrap/` | Stage definitions and `order.txt` | Build order is a plain file, checked by CI |
 | `sandbox/` | Build sandbox configuration | Chroot and namespace helpers |
 | `initramfs/` | Initramfs generator and `init` script | busybox-based |
 | `etc/` | Default `/etc` templates | Never machine-specific |
-| `init/services/` | runit service directories | |
+| `init/services/` | poopsuite service definitions | Format defined by the poopsuite repo |
 | `keyring/` | **Public** keys only | Private keys never enter the repo |
 | `repo/` | Index generation, signing scripts, channel rules | Scripts must not contain key material |
 | `installer/` | TTY installer (POSIX sh + dialog) | |
@@ -83,7 +84,7 @@ These are hard rules. If a task seems to need one broken, stop and ask a maintai
 
 ### 4.3 Making changes
 
-- **`pkgmgr` (C11):** `-std=c11 -Wall -Wextra -Werror`. No new runtime dependency without an ADR. Parsers take untrusted input (archives, indexes), so every parser change needs a test and, where it touches archive or index parsing, a fuzz target.
+- **Component code (`pkgmgr`, `poopsuite`, `musl-poop`):** it lives in the component repos. Make the change there, in a branch and PR, following that repo's rules. Do not copy component code into this repo. Here, a change is a pin bump in the recipe, with the old and new SHA in the PR.
 - **Recipes:** `recipe.toml` must validate against the contract in `ARCHITECTURE.md` §2.4. `build.sh` defines only `prepare`, `build`, `check` and `install`. It writes only into `$DESTDIR`. It reads no host files except declared inputs.
 - **Shell (installer, scripts, `build.sh`):** `set -eu` (plus `pipefail` where bash is used). Quote variables. Pass `shellcheck` and `shfmt` (`make lint`). Installer scripts stay POSIX `sh` unless an ADR says otherwise.
 - **Kernel config:** make changes as small fragments. After any change, run the drift check and commit the expected result.
@@ -98,7 +99,7 @@ Run the checks that apply and report their real output. Do not say "tests pass" 
 |-------------|----------------------|
 | Docs only | Internal links and anchors resolve; no stale paths |
 | Shell script | `shellcheck` and `shfmt -d` clean |
-| `pkgmgr` | Unit tests (`make test-pkgmgr`) pass; compile with `-Werror`; scenario tests pass when they exist |
+| Pin bump (`poop`, `poopsuite`, `musl-poop`) | Scenario tests (`make test-scenarios`) pass; boot test if the change touches PID 1 or the C library; benchmarks (§4.5) if the bump claims a speed or size gain |
 | Recipe | `recipe.toml` validates; `make recipe-check R=<name>` passes; build in the sandbox when the target exists |
 | Kernel config | Drift check clean |
 | Installer or `iso/` | ISO build (`make iso`) and boot test, or state that they were not run |
@@ -121,7 +122,7 @@ Any claim that a change makes something faster, smaller, or lighter needs measur
 - Use **Conventional Commits**: `type(scope): summary`, for example `feat(pkgmgr): verify index signature before parsing`.
 - Keep the subject under 72 characters. Use the body to explain *why*.
 - When you are an AI agent writing a commit, end the commit message with the trailer `Co-Authored-By: <model name> <noreply@anthropic.com>`. Do not add other attribution lines.
-- PR descriptions follow `.github/PULL_REQUEST_TEMPLATE.md` (to be created). For AI-authored PRs made with Claude Code, end the description with the line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+- PR descriptions follow `.github/PULL_REQUEST_TEMPLATE.md`. For AI-authored PRs made with Claude Code, end the description with the line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
 ---
 
@@ -132,8 +133,7 @@ The `Makefile` arrives in Phase 0 (see `ARCHITECTURE.md` §9). Until it exists, 
 | Target | What it does | Phase |
 |--------|--------------|-------|
 | `make lint` | shellcheck, shfmt, yamllint, editorconfig-checker, recipe and bootstrap-order checks, SPDX header check | 0 |
-| `make test-pkgmgr` | Build and run `pkgmgr` unit tests with sanitizers | 1 |
-| `make fuzz-pkgmgr` | Run the archive and index fuzz targets for a fixed time | 1 |
+| `make test-scenarios` | Run `pkgmgr` scenario tests (install, remove, upgrade, rollback) in a throwaway stage root | 1 |
 | `make recipe-check R=<name>` | Validate one `recipe.toml` and its source hashes | 0 |
 | `make fetch R=<name>` | Download and hash-verify a recipe's sources into the cache | 2 |
 | `make build R=<name>` | Build one recipe in the sandbox and pack it | 2 |
@@ -169,7 +169,8 @@ Changes in these areas need a maintainer review, even if CI is green:
 
 - `.github/workflows/` (CI runs with access to signing secrets)
 - `keyring/` and `repo/` (trust roots and publish logic)
-- `pkgmgr/src/` code that verifies signatures, parses archives or writes to the root filesystem
+- Pins to component repos (`recipes/poop/`, `recipes/poopsuite/`, `recipes/musl-poop/`). The code they pin does signature checks, archive handling and PID 1.
+- `SECURITY.md`, and anything that changes how vulnerabilities are reported
 - `kernel/source.env` (changes which kernel ships)
 - `kernel/config/` (security-relevant options such as lockdown and module signing)
 - `bootstrap/stage0/` (seed hashes)
