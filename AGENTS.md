@@ -121,8 +121,9 @@ Any claim that a change makes something faster, smaller, or lighter needs measur
 
 - Use **Conventional Commits**: `type(scope): summary`, for example `feat(pkgmgr): verify index signature before parsing`.
 - Keep the subject under 72 characters. Use the body to explain *why*.
-- When you are an AI agent writing a commit, end the commit message with the trailer `Co-Authored-By: <model name> <noreply@anthropic.com>`. Do not add other attribution lines.
-- PR descriptions follow `.github/PULL_REQUEST_TEMPLATE.md`. For AI-authored PRs made with Claude Code, end the description with the line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+- When you are an AI agent writing a commit, end the commit message with the trailer `Co-Authored-By: <model name> <noreply@anthropic.com>`. That is the only attribution line allowed.
+- **Never add a "Generated with" footer, a session link, or any equivalent tool-attribution line** (for example `Claude-Session:`) to a commit message, PR title, PR description or PR comment. If AI assistance matters to a reviewer, say so in plain words in the PR's "Notes for reviewers" section, and name the tool.
+- PR descriptions follow `.github/PULL_REQUEST_TEMPLATE.md`, without any footer added.
 
 ---
 

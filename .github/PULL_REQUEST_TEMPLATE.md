@@ -53,4 +53,3 @@ Does this PR touch any of these? If yes, say what the risk is and tag a second r
 
 <!-- If an AI tool wrote a substantial part of this change, say so above and name the tool. -->
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)

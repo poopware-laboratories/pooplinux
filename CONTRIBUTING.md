@@ -280,7 +280,7 @@ AI tools are welcome as long as the human who opens the PR has read and understo
 - Say in the PR description that AI tools were used. Name the tool if you can.
 - AI-generated code gets the same review as any other code. Do not expect reviewers to accept output they have not been asked to check.
 - Do not paste secrets, private keys or unpublished vulnerability details into AI tools.
-- AI agents follow `AGENTS.md`. Their commits carry the attribution trailer described there.
+- AI agents follow `AGENTS.md`. Their commits carry only the `Co-Authored-By` trailer described there. Commits and PR descriptions never carry a "Generated with" footer or a session link.
 
 ## 17. Licensing
 
