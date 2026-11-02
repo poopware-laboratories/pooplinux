@@ -560,7 +560,7 @@ Each choice has the reason we made it and the condition under which we would rec
 | **Testing** | `pkgmgr` unit tests in the `poop` repo; scenario tests in a stage root here; QEMU+OVMF boot and install tests | Manual testing only | Automatable and repeatable. | Hardware-in-the-loop tests (§7). |
 | **Hosting** | Object storage origin behind a CDN (*Proposed*, ADR-010) | GitHub Releases; self-hosted server | Egress-heavy workload is cheap there. The maintainers' answer did not cover hosting; see §8 Q5. | Egress costs or provider limits change. |
 | **Commit / PR conventions** | Conventional Commits; PR template | Free-form | Machine-readable changelog. | — |
-| **Licensing** | Our code and recipes under **BSD-3-Clause** (maintainer decision). Upstream components keep their own licenses; the kernel stays GPL-2.0-only. BSD-3-Clause is GPL-compatible. | EUPL-1.2; MIT; GPL-2.0 for everything; one license for all | Maintainers' decision. Short, widely understood permissive licence that is compatible with the GPL kernel. | Legal review finds an incompatibility, or a contributor base needs a different licence. |
+| **Licensing** | Our code and recipes under **BSD-3-Clause** (maintainer decision). Upstream components keep their own licenses; the kernel stays GPL-2.0-only. BSD-3-Clause is GPL-compatible. | MIT; GPL-2.0 for everything; one license for all | Maintainers' decision. Short, widely understood permissive licence that is compatible with the GPL kernel. | Legal review finds an incompatibility, or a contributor base needs a different licence. |
 | **Branding** | Own name, logo and text in `branding/`. No third-party marks. | Keeping upstream branding | Avoids trademark confusion. | — |
 
 ---
@@ -633,8 +633,8 @@ Each decision below is an ADR. The full record goes in `docs/decisions/NNNN-<tit
 
 ### ADR-014 — BSD-3-Clause for project code (Accepted, maintainer decision)
 
-- **Options:** BSD-3-Clause; EUPL-1.2; MIT; GPL-2.0 for everything.
-- **Chosen:** BSD-3-Clause in `LICENSE` for our code, recipes and documentation. This replaces the earlier choice of EUPL-1.2.
+- **Options:** BSD-3-Clause; MIT; GPL-2.0 for everything.
+- **Chosen:** BSD-3-Clause in `LICENSE` for our code, recipes and documentation.
 - **Gains:** a short permissive licence that contributors and downstream projects already know. It is GPL-compatible, so the GPL-2.0-only kernel and our code can be combined. The non-endorsement clause keeps the project name from being used to promote derived works.
 - **Costs:** no copyleft, so downstream projects may ship modified versions without publishing their changes. Every new source file needs the SPDX header (CONTRIBUTING §17).
 
